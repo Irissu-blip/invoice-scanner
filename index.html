@@ -96,6 +96,13 @@
   .api-status.ok    { color: var(--success); }
   .api-status.empty { color: var(--muted); }
 
+  .saved-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-family: 'Space Mono', monospace;
+    color: var(--success); background: #d4ead9;
+    padding: 2px 8px; border-radius: 2px;
+  }
+
   .upload-zone {
     border: 2px dashed var(--border); border-radius: var(--radius); padding: 32px 20px;
     text-align: center; cursor: pointer; transition: all 0.2s; background: var(--paper2);
@@ -238,14 +245,17 @@
     <div>
       <div class="section-label">Anthropic API 金鑰</div>
       <div class="api-key-box">
-        <div class="api-label">API KEY</div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div class="api-label">API KEY</div>
+          <div class="saved-badge" id="saved-badge" style="display:none">✓ 已記住</div>
+        </div>
         <div class="api-key-row">
           <input type="password" id="api-key-input" placeholder="sk-ant-api03-..." oninput="onApiKeyChange(this.value)">
           <button class="btn-toggle-key" onclick="toggleKeyVisibility()">👁</button>
         </div>
         <div class="hint">
           前往 <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:var(--accent)">console.anthropic.com</a> 取得金鑰<br>
-          金鑰只存在你的瀏覽器，不會傳送到任何地方
+          金鑰會儲存在此瀏覽器，下次打開自動帶入
         </div>
         <div class="api-status empty" id="api-status">● 尚未輸入金鑰</div>
       </div>
@@ -309,7 +319,7 @@
     <div class="results-grid" id="results-grid">
       <div class="empty-state">
         <div class="icon">🧾</div>
-        <p>輸入 API 金鑰並上傳發票照片，AI 將自動辨識並可一鍵寫入 Google Sheets</p>
+        <p>上傳發票照片，AI 將自動辨識並可一鍵寫入 Google Sheets</p>
       </div>
     </div>
   </div>
@@ -319,17 +329,41 @@
 
 <script>
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwzNuZHqq0Gi_OJPYdL0xV8EpSJAyCoFDvb51m490DdEm4bNv_Zzv8oLVt3RklAriWiFw/exec';
+const STORAGE_KEY = 'invoice_scanner_api_key';
 
 let queue = [], results = [], writtenIds = new Set(), apiKey = '';
+
+// ── 頁面載入時自動讀取儲存的金鑰 ──────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    apiKey = saved;
+    document.getElementById('api-key-input').value = saved;
+    updateApiStatus(saved);
+  }
+});
 
 // ── API KEY ──────────────────────────────────
 function onApiKeyChange(val) {
   apiKey = val.trim();
-  const s = document.getElementById('api-status');
+  updateApiStatus(apiKey);
   if (apiKey.startsWith('sk-ant-')) {
+    localStorage.setItem(STORAGE_KEY, apiKey);
+    document.getElementById('saved-badge').style.display = 'inline-flex';
+  } else {
+    localStorage.removeItem(STORAGE_KEY);
+    document.getElementById('saved-badge').style.display = 'none';
+  }
+  updateBtn();
+}
+
+function updateApiStatus(val) {
+  const s = document.getElementById('api-status');
+  if (val && val.startsWith('sk-ant-')) {
     s.textContent = '● 金鑰已設定，可以開始辨識';
     s.className = 'api-status ok';
-  } else if (apiKey.length > 0) {
+    document.getElementById('saved-badge').style.display = 'inline-flex';
+  } else if (val && val.length > 0) {
     s.textContent = '● 格式不符（應以 sk-ant- 開頭）';
     s.className = 'api-status empty';
   } else {
@@ -524,7 +558,6 @@ async function writeToSheets(id) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...d, sheetName })
     });
-
     writtenIds.add(id);
     btn.textContent = '✓ 已寫入';
     btn.className = 'btn-sm written';
