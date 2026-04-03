@@ -1,23 +1,518 @@
-INVOICE_SCAN
-發票 AI 辨識 → Google Sheets
-ANTHROPIC API 金鑰
-API KEY
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>發票掃描器</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=Space+Mono:wght@400;700&display=swap');
 
-👁
-前往 console.anthropic.com 取得金鑰
-金鑰會儲存在此瀏覽器，下次打開自動帶入
-● 尚未輸入金鑰
-上傳發票
+  :root {
+    --ink: #1a1a1a;
+    --paper: #f5f2eb;
+    --paper2: #ece8df;
+    --accent: #c8522a;
+    --accent2: #e8a87c;
+    --muted: #888070;
+    --success: #2d7a4f;
+    --border: #d4cec2;
+    --radius: 4px;
+  }
 
-📄
-點擊或拖曳上傳 支援多張同時上傳 JPG、PNG、HEIC
-↑ 開始辨識
-GOOGLE SHEETS 設定
-工作表名稱（Sheet Name）
-發票紀錄
-✓ 已連接你的 Google Sheet
-寫入欄位：發票號碼、開立日期、賣方、賣方統編、品項、含稅金額
-辨識結果
-🧾
-上傳發票照片，AI 將自動辨識並可一鍵寫入 Google Sheets
+  * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  body { font-family: 'Noto Sans TC', sans-serif; background: var(--paper); color: var(--ink); min-height: 100vh; }
+
+  header { background: var(--ink); color: var(--paper); padding: 18px 32px; display: flex; align-items: baseline; gap: 16px; }
+  header h1 { font-family: 'Space Mono', monospace; font-size: 18px; letter-spacing: 0.05em; color: var(--accent2); }
+  header span { font-size: 12px; color: #888; letter-spacing: 0.1em; }
+
+  .layout { display: grid; grid-template-columns: 400px 1fr; min-height: calc(100vh - 56px); }
+
+  .left { border-right: 1px solid var(--border); padding: 28px 24px; display: flex; flex-direction: column; gap: 20px; background: var(--paper); }
+
+  .section-label { font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 0.2em; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+
+  .api-key-box { background: #fff8f0; border: 1.5px solid var(--accent2); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .api-key-box .api-label { font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 0.15em; color: var(--accent); }
+  .api-key-row { display: flex; gap: 8px; align-items: center; }
+  .api-key-row input { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; font-family: 'Space Mono', monospace; background: white; color: var(--ink); }
+  .api-key-row input:focus { outline: none; border-color: var(--accent); }
+  .btn-toggle-key { padding: 8px 10px; background: var(--paper2); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; font-size: 13px; color: var(--muted); flex-shrink: 0; }
+  .api-key-box .hint { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .api-status { font-size: 11px; font-family: 'Space Mono', monospace; }
+  .api-status.ok { color: var(--success); }
+  .api-status.empty { color: var(--muted); }
+  .saved-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-family: 'Space Mono', monospace; color: var(--success); background: #d4ead9; padding: 2px 8px; border-radius: 2px; }
+
+  .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 32px 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--paper2); position: relative; min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+  .upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: #f8f0e8; }
+  .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .upload-icon { font-size: 32px; line-height: 1; }
+  .upload-zone p { font-size: 14px; color: var(--muted); line-height: 1.5; }
+  .upload-zone strong { color: var(--accent); font-weight: 500; }
+
+  #preview-container { display: none; position: relative; }
+  #preview-img { width: 100%; border-radius: var(--radius); border: 1px solid var(--border); max-height: 220px; object-fit: contain; background: white; }
+  .preview-remove { position: absolute; top: 6px; right: 6px; background: var(--ink); color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: 0.7; }
+  .preview-remove:hover { opacity: 1; }
+
+  .btn-analyze { width: 100%; padding: 14px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-family: 'Space Mono', monospace; font-size: 13px; letter-spacing: 0.08em; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-analyze:hover:not(:disabled) { background: #a83f1f; }
+  .btn-analyze:disabled { background: var(--border); color: var(--muted); cursor: default; }
+
+  .spinner { display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .queue-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+  .queue-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--paper2); border-radius: var(--radius); font-size: 12px; border: 1px solid var(--border); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.pending  { background: var(--muted); }
+  .status-dot.scanning { background: var(--accent2); animation: pulse 1s infinite; }
+  .status-dot.done     { background: var(--success); }
+  .status-dot.error    { background: #c0392b; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .queue-item .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 10px; padding: 2px 6px; border-radius: 2px; font-family: 'Space Mono', monospace; }
+  .badge.pending  { background: #e8e4da; color: var(--muted); }
+  .badge.scanning { background: #fde8d0; color: #a05020; }
+  .badge.done     { background: #d4ead9; color: var(--success); }
+  .badge.error    { background: #fde; color: #c0392b; }
+
+  .sheet-name-box { background: var(--paper2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .input-row { display: flex; flex-direction: column; gap: 4px; }
+  .input-row label { font-size: 11px; color: var(--muted); font-family: 'Space Mono', monospace; letter-spacing: 0.05em; }
+  .input-row input { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; background: white; color: var(--ink); width: 100%; }
+  .input-row input:focus { outline: none; border-color: var(--accent); }
+
+  .right { padding: 28px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+  .results-header { display: flex; align-items: center; justify-content: space-between; }
+
+  .btn-export-all { padding: 8px 16px; background: var(--success); color: white; border: none; border-radius: var(--radius); font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 0.05em; cursor: pointer; transition: background 0.2s; display: none; align-items: center; gap: 6px; }
+  .btn-export-all:hover { background: #225e3c; }
+
+  .results-grid { display: flex; flex-direction: column; gap: 12px; }
+
+  .invoice-card { background: white; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; animation: slideIn 0.3s ease; }
+  @keyframes slideIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+
+  .card-header { padding: 12px 16px; background: var(--paper2); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .inv-num { font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.05em; }
+  .inv-date { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .inv-amount { font-family: 'Space Mono', monospace; font-size: 18px; font-weight: 700; color: var(--ink); }
+
+  .card-body { padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; }
+  .field { display: flex; flex-direction: column; gap: 2px; }
+  .field .key { font-size: 10px; color: var(--muted); letter-spacing: 0.1em; font-family: 'Space Mono', monospace; text-transform: uppercase; }
+  .field .val { font-size: 13px; color: var(--ink); }
+  .field.full { grid-column: 1 / -1; }
+
+  .card-footer { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+  .btn-sm { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 11px; cursor: pointer; font-family: 'Space Mono', monospace; letter-spacing: 0.04em; transition: all 0.15s; background: white; color: var(--ink); }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.primary { background: var(--success); color: white; border-color: var(--success); }
+  .btn-sm.primary:hover { background: #225e3c; }
+  .btn-sm.written { background: var(--paper2); color: var(--muted); border-color: var(--border); cursor: default; }
+
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); padding: 60px 20px; text-align: center; }
+  .empty-state .icon { font-size: 48px; opacity: 0.4; }
+  .empty-state p { font-size: 14px; line-height: 1.6; max-width: 280px; }
+
+  #notif { position: fixed; bottom: 24px; right: 24px; padding: 12px 18px; border-radius: var(--radius); font-size: 13px; color: white; opacity: 0; transform: translateY(8px); transition: all 0.3s; pointer-events: none; z-index: 100; }
+  #notif.show { opacity: 1; transform: translateY(0); }
+  #notif.success { background: var(--success); }
+  #notif.error   { background: #c0392b; }
+  #notif.info    { background: var(--ink); }
+
+  .stats-bar { display: flex; gap: 20px; padding: 12px 16px; background: var(--paper2); border: 1px solid var(--border); border-radius: var(--radius); }
+  .stat { display: flex; flex-direction: column; gap: 2px; }
+  .stat .n { font-size: 18px; font-weight: 700; color: var(--accent); font-family: 'Space Mono', monospace; }
+  .stat .l { font-size: 10px; color: var(--muted); letter-spacing: 0.1em; font-family: 'Space Mono', monospace; }
+
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; }
+    .left { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>INVOICE_SCAN</h1>
+  <span>發票 AI 辨識 → Google Sheets</span>
+</header>
+
+<div class="layout">
+  <div class="left">
+
+    <div>
+      <div class="section-label">Anthropic API 金鑰</div>
+      <div class="api-key-box">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div class="api-label">API KEY</div>
+          <div class="saved-badge" id="saved-badge" style="display:none">✓ 已記住</div>
+        </div>
+        <div class="api-key-row">
+          <input type="password" id="api-key-input" placeholder="sk-ant-api03-..." oninput="onApiKeyChange(this.value)">
+          <button class="btn-toggle-key" onclick="toggleKeyVisibility()">👁</button>
+        </div>
+        <div class="hint">
+          前往 <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:var(--accent)">console.anthropic.com</a> 取得金鑰<br>
+          金鑰會儲存在此瀏覽器，下次打開自動帶入
+        </div>
+        <div class="api-status empty" id="api-status">● 尚未輸入金鑰</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">上傳發票</div>
+      <div class="upload-zone" id="upload-zone">
+        <input type="file" id="file-input" accept="image/*" multiple>
+        <div class="upload-icon">📄</div>
+        <p>點擊或拖曳上傳<br><strong>支援多張同時上傳</strong><br><span style="font-size:12px">JPG、PNG、HEIC</span></p>
+      </div>
+      <div id="preview-container">
+        <img id="preview-img" src="" alt="預覽">
+        <button class="preview-remove" id="preview-remove">✕</button>
+      </div>
+    </div>
+
+    <button class="btn-analyze" id="btn-analyze" disabled>
+      <div class="spinner" id="spinner"></div>
+      <span id="btn-text">↑ 開始辨識</span>
+    </button>
+
+    <div id="queue-section" style="display:none">
+      <div class="section-label">辨識佇列</div>
+      <div class="queue-list" id="queue-list"></div>
+    </div>
+
+    <div>
+      <div class="section-label">Google Sheets 設定</div>
+      <div class="sheet-name-box">
+        <div class="input-row">
+          <label>工作表名稱（Sheet Name）</label>
+          <input type="text" id="sheet-name" value="發票紀錄" placeholder="例：發票紀錄">
+        </div>
+        <div style="font-size:11px;color:var(--success);line-height:1.6">
+          ✓ 已連接你的 Google Sheet<br>
+          寫入欄位：發票號碼、開立日期、賣方、賣方統編、品項、含稅金額
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="right">
+    <div class="results-header">
+      <div class="section-label" style="margin:0">辨識結果</div>
+      <button class="btn-export-all" id="btn-export-all">✓ 全部寫入 Sheets</button>
+    </div>
+
+    <div id="stats-bar" class="stats-bar" style="display:none">
+      <div class="stat"><div class="n" id="stat-total">0</div><div class="l">總張數</div></div>
+      <div class="stat"><div class="n" id="stat-done">0</div><div class="l">已辨識</div></div>
+      <div class="stat"><div class="n" id="stat-written">0</div><div class="l">已寫入</div></div>
+      <div class="stat"><div class="n" id="stat-amount">$0</div><div class="l">總金額</div></div>
+    </div>
+
+    <div class="results-grid" id="results-grid">
+      <div class="empty-state">
+        <div class="icon">🧾</div>
+        <p>上傳發票照片，AI 將自動辨識並可一鍵寫入 Google Sheets</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="notif"></div>
+
+<script>
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwzNuZHqq0Gi_OJPYdL0xV8EpSJAyCoFDvb51m490DdEm4bNv_Zzv8oLVt3RklAriWiFw/exec';
+const STORAGE_KEY = 'invoice_scanner_api_key';
+
+let queue = [], results = [], writtenIds = new Set(), apiKey = '';
+let cardCounter = 0; // 用整數計數器取代 Date.now() 避免小數點問題
+
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    apiKey = saved;
+    document.getElementById('api-key-input').value = saved;
+    updateApiStatus(saved);
+  }
+});
+
+function onApiKeyChange(val) {
+  apiKey = val.trim();
+  updateApiStatus(apiKey);
+  if (apiKey.startsWith('sk-ant-')) {
+    localStorage.setItem(STORAGE_KEY, apiKey);
+    document.getElementById('saved-badge').style.display = 'inline-flex';
+  } else {
+    localStorage.removeItem(STORAGE_KEY);
+    document.getElementById('saved-badge').style.display = 'none';
+  }
+  updateBtn();
+}
+
+function updateApiStatus(val) {
+  const s = document.getElementById('api-status');
+  if (val && val.startsWith('sk-ant-')) {
+    s.textContent = '● 金鑰已設定，可以開始辨識';
+    s.className = 'api-status ok';
+    document.getElementById('saved-badge').style.display = 'inline-flex';
+  } else if (val && val.length > 0) {
+    s.textContent = '● 格式不符（應以 sk-ant- 開頭）';
+    s.className = 'api-status empty';
+  } else {
+    s.textContent = '● 尚未輸入金鑰';
+    s.className = 'api-status empty';
+  }
+  updateBtn();
+}
+
+function toggleKeyVisibility() {
+  const i = document.getElementById('api-key-input');
+  i.type = i.type === 'password' ? 'text' : 'password';
+}
+
+function updateBtn() {
+  const ok = queue.some(q => q.status === 'pending') && apiKey.startsWith('sk-ant-');
+  document.getElementById('btn-analyze').disabled = !ok;
+}
+
+const fileInput = document.getElementById('file-input');
+const uploadZone = document.getElementById('upload-zone');
+
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
+uploadZone.addEventListener('drop', e => { e.preventDefault(); uploadZone.classList.remove('drag'); handleFiles(e.dataTransfer.files); });
+
+document.getElementById('preview-remove').addEventListener('click', () => {
+  queue = [];
+  document.getElementById('preview-container').style.display = 'none';
+  uploadZone.style.display = 'flex';
+  fileInput.value = '';
+  updateBtn();
+  renderQueue();
+});
+
+function handleFiles(files) {
+  if (!files.length) return;
+  for (const f of files) {
+    cardCounter++;
+    queue.push({ id: 'c' + cardCounter, file: f, name: f.name, status: 'pending' });
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('preview-img').src = e.target.result;
+    document.getElementById('preview-container').style.display = 'block';
+    uploadZone.style.display = 'none';
+  };
+  reader.readAsDataURL(files[0]);
+  document.getElementById('queue-section').style.display = 'block';
+  renderQueue();
+  updateBtn();
+}
+
+function renderQueue() {
+  document.getElementById('queue-list').innerHTML = queue.map(q => `
+    <div class="queue-item">
+      <div class="status-dot ${q.status}"></div>
+      <div class="fname">${q.name}</div>
+      <div class="badge ${q.status}">${q.status==='pending'?'等待':q.status==='scanning'?'辨識中':q.status==='done'?'完成':'錯誤'}</div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('btn-analyze').addEventListener('click', analyzeAll);
+
+async function analyzeAll() {
+  const pending = queue.filter(q => q.status === 'pending');
+  if (!pending.length) return;
+
+  document.getElementById('btn-analyze').disabled = true;
+  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('btn-text').textContent = '辨識中...';
+
+  if (document.querySelector('.empty-state')) document.getElementById('results-grid').innerHTML = '';
+
+  for (const item of pending) {
+    item.status = 'scanning';
+    renderQueue();
+    try {
+      const data = await analyzeInvoice(item.file);
+      item.status = 'done';
+      results.push({ ...data, _id: item.id });
+      renderCard({ ...data, _id: item.id });
+    } catch(e) {
+      item.status = 'error';
+      showNotif(`辨識失敗：${e.message}`, 'error');
+    }
+    renderQueue();
+    updateStats();
+  }
+
+  document.getElementById('spinner').style.display = 'none';
+  document.getElementById('btn-text').textContent = '↑ 繼續辨識';
+  updateBtn();
+  if (results.length > 0) document.getElementById('btn-export-all').style.display = 'flex';
+}
+
+async function analyzeInvoice(file) {
+  const base64 = await toBase64(file);
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: file.type || 'image/jpeg', data: base64 } },
+          { type: 'text', text: `請辨識這張發票，以純 JSON 回傳，不要加任何說明或 markdown：
+{
+  "invoice_number": "發票號碼（若無填空字串）",
+  "date": "開立日期 YYYY-MM-DD",
+  "seller": "賣方名稱",
+  "seller_tax_id": "賣方統一編號（8位數字，若無填空字串）",
+  "items": "品項摘要，多項用逗號分隔",
+  "total_amount": 含稅總金額數字（純數字不含符號）
+}` }
+        ]
+      }]
+    })
+  });
+  const json = await resp.json();
+  if (json.error) throw new Error(json.error.message);
+  return JSON.parse(json.content[0].text.trim().replace(/```json|```/g, '').trim());
+}
+
+function toBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.onerror = () => rej(new Error('讀取失敗'));
+    r.readAsDataURL(file);
+  });
+}
+
+function renderCard(d) {
+  const card = document.createElement('div');
+  card.className = 'invoice-card';
+  card.id = 'card-' + d._id;
+  const amt = d.total_amount ? `NT$ ${Number(d.total_amount).toLocaleString()}` : '—';
+  card.innerHTML = `
+    <div class="card-header">
+      <div>
+        <div class="inv-num">${d.invoice_number || '（無號碼）'}</div>
+        <div class="inv-date">${d.date || '—'}</div>
+      </div>
+      <div class="inv-amount">${amt}</div>
+    </div>
+    <div class="card-body">
+      <div class="field"><div class="key">賣方</div><div class="val">${d.seller||'—'}</div></div>
+      <div class="field"><div class="key">賣方統編</div><div class="val">${d.seller_tax_id||'—'}</div></div>
+      <div class="field full"><div class="key">品項</div><div class="val">${d.items||'—'}</div></div>
+    </div>
+    <div class="card-footer">
+      <button class="btn-sm" onclick="editCard('${d._id}')">✏ 編輯</button>
+      <button class="btn-sm primary" id="write-${d._id}" onclick="writeToSheets('${d._id}')">↗ 寫入 Sheets</button>
+    </div>
+  `;
+  document.getElementById('results-grid').appendChild(card);
+}
+
+function updateStats() {
+  document.getElementById('stats-bar').style.display = 'flex';
+  document.getElementById('stat-total').textContent = queue.length;
+  document.getElementById('stat-done').textContent = queue.filter(q => q.status === 'done').length;
+  document.getElementById('stat-written').textContent = writtenIds.size;
+  const total = results.reduce((s, r) => s + (Number(r.total_amount) || 0), 0);
+  document.getElementById('stat-amount').textContent = `$${total.toLocaleString()}`;
+}
+
+async function writeToSheets(id) {
+  const d = results.find(r => r._id === id);
+  if (!d) return;
+  const sheetName = document.getElementById('sheet-name').value.trim() || '發票紀錄';
+  const btn = document.getElementById('write-' + id);
+  btn.textContent = '寫入中...';
+  btn.disabled = true;
+
+  try {
+    await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...d, sheetName })
+    });
+    writtenIds.add(id);
+    btn.textContent = '✓ 已寫入';
+    btn.className = 'btn-sm written';
+    showNotif(`✓ ${d.seller || d.invoice_number || '發票'} 已寫入 Sheets`, 'success');
+    updateStats();
+  } catch(e) {
+    btn.textContent = '↗ 重試';
+    btn.disabled = false;
+    showNotif(`寫入失敗：${e.message}`, 'error');
+  }
+}
+
+document.getElementById('btn-export-all').addEventListener('click', async () => {
+  for (const r of results.filter(r => !writtenIds.has(r._id))) await writeToSheets(r._id);
+});
+
+function editCard(id) {
+  const d = results.find(r => r._id === id);
+  if (!d) return;
+  const card = document.getElementById('card-' + id);
+  card.querySelector('.card-body').innerHTML = `
+    <div class="field"><div class="key">發票號碼</div><input style="border:1px solid var(--border);padding:4px 8px;font-size:13px;width:100%;border-radius:4px;background:white" value="${d.invoice_number||''}" oninput="upd('${id}','invoice_number',this.value)"></div>
+    <div class="field"><div class="key">開立日期</div><input style="border:1px solid var(--border);padding:4px 8px;font-size:13px;width:100%;border-radius:4px;background:white" value="${d.date||''}" oninput="upd('${id}','date',this.value)"></div>
+    <div class="field"><div class="key">賣方</div><input style="border:1px solid var(--border);padding:4px 8px;font-size:13px;width:100%;border-radius:4px;background:white" value="${d.seller||''}" oninput="upd('${id}','seller',this.value)"></div>
+    <div class="field"><div class="key">賣方統編</div><input style="border:1px solid var(--border);padding:4px 8px;font-size:13px;width:100%;border-radius:4px;background:white" value="${d.seller_tax_id||''}" oninput="upd('${id}','seller_tax_id',this.value)"></div>
+    <div class="field full"><div class="key">品項</div><input style="border:1px solid var(--border);padding:4px 8px;font-size:13px;width:100%;border-radius:4px;background:white" value="${d.items||''}" oninput="upd('${id}','items',this.value)"></div>
+    <div class="field full"><div class="key">含稅金額</div><input type="number" style="border:1px solid var(--border);padding:4px 8px;font-size:13px;width:100%;border-radius:4px;background:white" value="${d.total_amount||''}" oninput="upd('${id}','total_amount',this.value)"></div>
+    <div class="field full" style="margin-top:4px"><button class="btn-sm primary" onclick="doneEdit('${id}')">✓ 完成編輯</button></div>
+  `;
+}
+
+function upd(id, key, val) {
+  const r = results.find(r => r._id === id);
+  if (r) r[key] = val;
+}
+
+function doneEdit(id) {
+  const d = results.find(r => r._id === id);
+  if (!d) return;
+  const card = document.getElementById('card-' + id);
+  card.querySelector('.inv-num').textContent = d.invoice_number || '（無號碼）';
+  card.querySelector('.inv-date').textContent = d.date || '—';
+  card.querySelector('.inv-amount').textContent = d.total_amount ? `NT$ ${Number(d.total_amount).toLocaleString()}` : '—';
+  card.querySelector('.card-body').innerHTML = `
+    <div class="field"><div class="key">賣方</div><div class="val">${d.seller||'—'}</div></div>
+    <div class="field"><div class="key">賣方統編</div><div class="val">${d.seller_tax_id||'—'}</div></div>
+    <div class="field full"><div class="key">品項</div><div class="val">${d.items||'—'}</div></div>
+  `;
+  updateStats();
+}
+
+function showNotif(msg, type = 'info') {
+  const el = document.getElementById('notif');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(window._t);
+  window._t = setTimeout(() => el.className = '', 3500);
+}
+</script>
+</body>
+</html>
